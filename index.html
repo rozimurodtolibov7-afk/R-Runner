@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>R-Runner: Jump & Run</title>
+    <style>
+        :root { --sky: #a2d2ff; --ground: #764134; --grass: #52b788; }
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Arial Rounded MT Bold', sans-serif; }
+        body { background: var(--sky); overflow: hidden; touch-action: none; }
+        
+        #game-container { position: relative; width: 100vw; height: 100vh; }
+        
+        /* UI */
+        #score-board { position: absolute; top: 20px; left: 20px; font-size: 24px; color: white; text-shadow: 2px 2px #000; z-index: 100; }
+        
+        /* Ground */
+        .ground { position: absolute; bottom: 0; width: 100%; height: 100px; background: var(--ground); border-top: 10px solid var(--grass); }
+
+        /* Player */
+        #player { position: absolute; bottom: 100px; left: 50px; width: 50px; height: 50px; font-size: 45px; display: flex; align-items: center; justify-content: center; z-index: 50; }
+        
+        /* Obstacle */
+        .obstacle { position: absolute; bottom: 100px; width: 40px; height: 40px; font-size: 35px; }
+
+        .jump { animation: jumpAnim 0.6s cubic-bezier(0.4, 0, 0.2, 1); }
+        @keyframes jumpAnim {
+            0%, 100% { bottom: 100px; }
+            50% { bottom: 250px; }
+        }
+
+        #msg { position: fixed; inset: 0; background: rgba(0,0,0,0.8); display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 1000; color: white; }
+        .btn { background: #ff4757; border: none; padding: 15px 40px; border-radius: 30px; font-size: 20px; color: white; cursor: pointer; margin-top: 20px; box-shadow: 0 5px 0 #b33939; }
+    </style>
+</head>
+<body>
+
+<div id="score-board">Masofa: <span id="dist">0</span> m</div>
+
+<div id="msg">
+    <h1>YIKILDINGIZ! 😵</h1>
+    <p>Bosib o'tilgan masofa: <span id="final-dist">0</span> m</p>
+    <button class="btn" onclick="location.reload()">QAYTA URINISH</button>
+</div>
+
+<div id="game-container">
+    <div id="player">🏃</div>
+    <div class="ground"></div>
+</div>
+
+<script>
+    const player = document.getElementById('player');
+    const distEl = document.getElementById('dist');
+    const msg = document.getElementById('msg');
+    const container = document.getElementById('game-container');
+
+    let distance = 0;
+    let isJumping = false;
+    let gameActive = true;
+    let obstacles = [];
+
+    // Sakrash funksiyasi
+    function jump() {
+        if (isJumping || !gameActive) return;
+        isJumping = true;
+        player.classList.add('jump');
+        setTimeout(() => {
+            player.classList.remove('jump');
+            isJumping = false;
+        }, 600);
+    }
+
+    // Har qanday bosishda sakrash
+    window.addEventListener('keydown', (e) => { if(e.code === 'Space') jump(); });
+    window.addEventListener('touchstart', jump);
+
+    function createObstacle() {
+        if (!gameActive) return;
+        const ob = document.createElement('div');
+        ob.className = 'obstacle';
+        ob.innerText = ['🌵', '📦', '🪵', '🔥'][Math.floor(Math.random()*4)];
+        ob.style.right = '-50px';
+        container.appendChild(ob);
+        obstacles.push(ob);
+
+        let delay = Math.random() * 1000 + 1000;
+        setTimeout(createObstacle, delay);
+    }
+
+    function gameLoop() {
+        if (!gameActive) return;
+
+        distance += 1;
+        distEl.innerText = Math.floor(distance / 10);
+
+        obstacles.forEach((ob, index) => {
+            let right = parseInt(window.getComputedStyle(ob).getPropertyValue('right'));
+            ob.style.right = (right + 7) + 'px';
+
+            // Collision detection (To'qnashuv)
+            let pRect = player.getBoundingClientRect();
+            let oRect = ob.getBoundingClientRect();
+
+            if (
+                pRect.left < oRect.right &&
+                pRect.right > oRect.left &&
+                pRect.bottom > oRect.top &&
+                pRect.top < oRect.bottom
+            ) {
+                gameOver();
+            }
+
+            if (right > window.innerWidth) {
+                ob.remove();
+                obstacles.splice(index, 1);
+            }
+        });
+
+        requestAnimationFrame(gameLoop);
+    }
+
+    function gameOver() {
+        gameActive = false;
+        msg.style.display = 'flex';
+        document.getElementById('final-dist').innerText = Math.floor(distance / 10);
+    }
+
+    createObstacle();
+    gameLoop();
+</script>
+</body>
+</html>
