@@ -7,7 +7,7 @@
     <style>
         :root { --neon-pink: #ff00ff; --neon-cyan: #00ffff; --bg: #050505; }
         body { margin: 0; overflow: hidden; background: var(--bg); color: white; font-family: 'Courier New', monospace; touch-action: none; }
-        canvas { display: block; filter: blur(0.5px) contrast(1.2); }
+        canvas { display: block; }
 
         #hud { position: fixed; top: 20px; width: 100%; display: flex; justify-content: space-around; z-index: 100; pointer-events: none; }
         .stat { background: rgba(0,0,0,0.8); padding: 10px 20px; border: 2px solid var(--neon-cyan); border-radius: 5px; box-shadow: 0 0 15px var(--neon-cyan); }
@@ -15,10 +15,9 @@
         .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.95); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 1000; text-align: center; }
         h1 { font-size: 50px; text-shadow: 0 0 20px var(--neon-pink); margin-bottom: 10px; }
         button { padding: 15px 60px; font-size: 22px; background: transparent; border: 2px solid var(--neon-pink); color: var(--neon-pink); cursor: pointer; transition: 0.3s; box-shadow: 0 0 10px var(--neon-pink); }
-        button:hover { background: var(--neon-pink); color: white; }
     </style>
 </head>
-<body onclick="handleAction()">
+<body onclick="handleAction()" ontouchstart="handleAction()">
 
 <div id="hud">
     <div class="stat">PULSE: <span id="dist">0</span></div>
@@ -27,8 +26,8 @@
 
 <div id="start-screen" class="overlay">
     <h1>THE PULSE</h1>
-    <p>Tap to JUMP. Follow the rhythm!<br>Avoid dark blocks and collect light sparks.</p>
-    <button onclick="initPulse(event)">SYNC START</button>
+    <p>Tap to JUMP. Avoid obstacles.<br>Speed: Relaxed | Rhythm: Synced</p>
+    <button onclick="initPulse(event)">START MISSION</button>
 </div>
 
 <canvas id="pulseCanvas"></canvas>
@@ -38,10 +37,10 @@
     const ctx = canvas.getContext('2d');
     let gameActive = false, score = 0, rc = 0;
     
+    // player.dy va gravitatsiya sekinlashtirildi
     const player = { x: 80, y: 0, w: 40, h: 40, dy: 0, jumping: false, ground: 0 };
-    let obstacles = [], particles = [];
+    let obstacles = [];
 
-    // --- PROCEDURAL MUSIC ENGINE ---
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     function playBeat(freq, type, dur, vol, timeOffset = 0) {
         const osc = audioCtx.createOscillator();
@@ -57,19 +56,16 @@
 
     function musicLoop() {
         if(!gameActive) return;
-        // Bass Kick
-        playBeat(60, 'sine', 0.2, 0.4);
-        // Snare/Clap
-        playBeat(800, 'square', 0.05, 0.05, 0.5);
+        playBeat(60, 'sine', 0.2, 0.4); // Kick
+        playBeat(800, 'square', 0.05, 0.03, 0.5); // Snare
         
-        // Spawn obstacle exactly on the beat
-        spawnObstacle();
+        if (Math.random() > 0.3) spawnObstacle(); // Randomly spawn on beat
         
-        setTimeout(musicLoop, 1000); // 60 BPM
+        setTimeout(musicLoop, 1200); // Sekinroq temp (BPM pasaytirildi)
     }
 
     function initPulse(e) {
-        e.stopPropagation();
+        if(e) e.stopPropagation();
         if (audioCtx.state === 'suspended') audioCtx.resume();
         document.getElementById('start-screen').style.display = 'none';
         
@@ -83,36 +79,36 @@
         update();
     }
 
-    function handleAction() {
+    function handleAction(e) {
+        if(e) e.preventDefault();
         if(!gameActive) return;
         if(!player.jumping) {
-            player.dy = -18;
+            player.dy = -15; // Sakrash kuchi sekinlashtirildi
             player.jumping = true;
             playBeat(400, 'triangle', 0.2, 0.1);
         }
     }
 
     function spawnObstacle() {
-        obstacles.push({ x: canvas.width, y: player.ground, w: 40, h: 60, passed: false });
+        obstacles.push({ x: canvas.width, y: player.ground, w: 45, h: 65 });
     }
 
     function update() {
         if(!gameActive) return;
 
-        // Visual background pulse
-        ctx.fillStyle = `rgba(5, 5, 5, 0.3)`;
+        ctx.fillStyle = `rgba(5, 5, 5, 0.4)`;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        // Draw Floor line
-        ctx.strokeStyle = varColor('--neon-cyan');
-        ctx.lineWidth = 3;
+        // Floor
+        ctx.strokeStyle = '#00ffff';
+        ctx.lineWidth = 4;
         ctx.beginPath();
         ctx.moveTo(0, player.ground + 40);
         ctx.lineTo(canvas.width, player.ground + 40);
         ctx.stroke();
 
-        // Player Physics
-        player.dy += 0.8;
+        // Player Gravity (Sekinroq tushish)
+        player.dy += 0.6; 
         player.y += player.dy;
         if(player.y > player.ground) {
             player.y = player.ground;
@@ -120,19 +116,18 @@
             player.jumping = false;
         }
 
-        // Draw Player (Spark)
-        ctx.shadowBlur = 15;
-        ctx.shadowColor = varColor('--neon-pink');
-        ctx.fillStyle = varColor('--neon-pink');
+        // Draw Player
+        ctx.fillStyle = '#ff00ff';
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = '#ff00ff';
         ctx.fillRect(player.x, player.y, player.w, player.h);
         ctx.shadowBlur = 0;
 
-        // Obstacles
+        // Obstacles (Sekinroq harakat)
         obstacles.forEach((obs, i) => {
-            obs.x -= 6;
-            ctx.fillStyle = '#333';
-            ctx.strokeStyle = varColor('--neon-cyan');
-            ctx.lineWidth = 2;
+            obs.x -= 4.5; // Tezlik 6 dan 4.5 ga tushirildi
+            ctx.fillStyle = '#111';
+            ctx.strokeStyle = '#00ffff';
             ctx.strokeRect(obs.x, obs.y, obs.w, obs.h);
             ctx.fillRect(obs.x, obs.y, obs.w, obs.h);
 
@@ -142,21 +137,22 @@
                 gameOver();
             }
 
-            if(obs.x < -50) obstacles.splice(i, 1);
+            if(obs.x < -100) obstacles.splice(i, 1);
         });
 
         score++;
         document.getElementById('dist').innerText = Math.floor(score/10);
+        document.getElementById('rc').innerText = Math.floor(score/50);
         requestAnimationFrame(update);
     }
-
-    function varColor(name) { return getComputedStyle(document.documentElement).getPropertyValue(name); }
 
     function gameOver() {
         gameActive = false;
         playBeat(50, 'sawtooth', 0.5, 0.2);
-        alert(`PULSE LOST!\nSync Level: ${Math.floor(score/10)}\nRC Earned: ${Math.floor(score/50)}`);
-        location.reload();
+        setTimeout(() => {
+            alert("GAME OVER\nPulse Level: " + Math.floor(score/10));
+            location.reload();
+        }, 100);
     }
 </script>
 </body>
