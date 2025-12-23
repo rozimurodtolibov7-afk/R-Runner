@@ -1,132 +1,173 @@
 <!DOCTYPE html>
-<html lang="uz">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>R-Runner: Jump & Run</title>
+    <title>R-Runner: Gravity Escape</title>
     <style>
-        :root { --sky: #a2d2ff; --ground: #764134; --grass: #52b788; }
-        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Arial Rounded MT Bold', sans-serif; }
-        body { background: var(--sky); overflow: hidden; touch-action: none; }
+        :root { --neon-green: #39ff14; --neon-red: #ff073a; --bg: #0a0a0f; }
+        body { margin: 0; overflow: hidden; background: var(--bg); color: white; font-family: 'Orbitron', sans-serif; touch-action: none; }
         
-        #game-container { position: relative; width: 100vw; height: 100vh; }
+        /* Game Screen */
+        #game-view { position: relative; width: 100vw; height: 100vh; border-top: 10px solid #333; border-bottom: 10px solid #333; box-sizing: border-box; }
         
         /* UI */
-        #score-board { position: absolute; top: 20px; left: 20px; font-size: 24px; color: white; text-shadow: 2px 2px #000; z-index: 100; }
-        
-        /* Ground */
-        .ground { position: absolute; bottom: 0; width: 100%; height: 100px; background: var(--ground); border-top: 10px solid var(--grass); }
+        #hud { position: fixed; top: 20px; width: 100%; display: flex; justify-content: space-around; z-index: 100; pointer-events: none; }
+        .stat { background: rgba(0,255,0,0.1); padding: 10px 20px; border: 1px solid var(--neon-green); border-radius: 5px; font-weight: bold; color: var(--neon-green); text-shadow: 0 0 5px var(--neon-green); }
 
-        /* Player */
-        #player { position: absolute; bottom: 100px; left: 50px; width: 50px; height: 50px; font-size: 45px; display: flex; align-items: center; justify-content: center; z-index: 50; }
-        
-        /* Obstacle */
-        .obstacle { position: absolute; bottom: 100px; width: 40px; height: 40px; font-size: 35px; }
+        /* Character */
+        #runner { position: absolute; left: 50px; width: 50px; height: 50px; font-size: 40px; display: flex; align-items: center; justify-content: center; transition: top 0.2s cubic-bezier(0.6, -0.28, 0.735, 0.045); z-index: 50; }
+        .on-floor { top: calc(100vh - 110px); transform: scaleY(1); }
+        .on-ceiling { top: 60px; transform: scaleY(-1); }
 
-        .jump { animation: jumpAnim 0.6s cubic-bezier(0.4, 0, 0.2, 1); }
-        @keyframes jumpAnim {
-            0%, 100% { bottom: 100px; }
-            50% { bottom: 250px; }
-        }
+        /* Obstacles */
+        .laser { position: absolute; width: 40px; height: 120px; background: var(--neon-red); box-shadow: 0 0 15px var(--neon-red); z-index: 40; }
+        .crystal { position: absolute; font-size: 25px; z-index: 40; }
 
-        #msg { position: fixed; inset: 0; background: rgba(0,0,0,0.8); display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 1000; color: white; }
-        .btn { background: #ff4757; border: none; padding: 15px 40px; border-radius: 30px; font-size: 20px; color: white; cursor: pointer; margin-top: 20px; box-shadow: 0 5px 0 #b33939; }
+        .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.95); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 1000; text-align: center; }
+        button { padding: 15px 50px; font-size: 22px; background: var(--neon-green); border: none; color: black; border-radius: 5px; cursor: pointer; font-weight: bold; margin-top: 20px; box-shadow: 0 0 20px var(--neon-green); }
     </style>
 </head>
-<body>
+<body onclick="switchGravity()" ontouchstart="switchGravity()">
 
-<div id="score-board">Masofa: <span id="dist">0</span> m</div>
-
-<div id="msg">
-    <h1>YIKILDINGIZ! 😵</h1>
-    <p>Bosib o'tilgan masofa: <span id="final-dist">0</span> m</p>
-    <button class="btn" onclick="location.reload()">QAYTA URINISH</button>
+<div id="hud">
+    <div class="stat">METERS: <span id="dist">0</span></div>
+    <div class="stat">RC: <span id="rc">0</span></div>
 </div>
 
-<div id="game-container">
-    <div id="player">🏃</div>
-    <div class="ground"></div>
+<div id="game-view">
+    <div id="runner" class="on-floor">🤖</div>
+</div>
+
+<div id="start-screen" class="overlay">
+    <h1 style="font-size: 45px; color: var(--neon-green);">GRAVITY ESCAPE</h1>
+    <p>Tap anywhere to flip gravity!<br>Avoid red lasers and collect crystals.</p>
+    <button onclick="startGame(event)">INITIALIZE RUN</button>
 </div>
 
 <script>
-    const player = document.getElementById('player');
-    const distEl = document.getElementById('dist');
-    const msg = document.getElementById('msg');
-    const container = document.getElementById('game-container');
+    let distance = 0, rc = 0;
+    let gameActive = false;
+    let gravityOnFloor = true;
+    const runner = document.getElementById('runner');
+    const view = document.getElementById('game-view');
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
-    let distance = 0;
-    let isJumping = false;
-    let gameActive = true;
-    let obstacles = [];
+    // --- TECHNO BEAT SYSTEM ---
+    function playBeat() {
+        if(!gameActive) return;
+        let time = audioCtx.currentTime;
+        
+        // Kick Drum
+        let kick = audioCtx.createOscillator();
+        let kGain = audioCtx.createGain();
+        kick.connect(kGain); kGain.connect(audioCtx.destination);
+        kick.frequency.setValueAtTime(150, time);
+        kick.frequency.exponentialRampToValueAtTime(0.01, time + 0.1);
+        kGain.gain.setValueAtTime(0.3, time);
+        kGain.gain.exponentialRampToValueAtTime(0.01, time + 0.1);
+        kick.start(time); kick.stop(time + 0.1);
 
-    // Sakrash funksiyasi
-    function jump() {
-        if (isJumping || !gameActive) return;
-        isJumping = true;
-        player.classList.add('jump');
-        setTimeout(() => {
-            player.classList.remove('jump');
-            isJumping = false;
-        }, 600);
+        // Synth Note
+        let synth = audioCtx.createOscillator();
+        let sGain = audioCtx.createGain();
+        synth.type = 'sawtooth';
+        synth.frequency.setValueAtTime(gravityOnFloor ? 110 : 220, time);
+        synth.connect(sGain); sGain.connect(audioCtx.destination);
+        sGain.gain.setValueAtTime(0.02, time);
+        sGain.gain.exponentialRampToValueAtTime(0.0001, time + 0.4);
+        synth.start(time); synth.stop(time + 0.5);
+
+        setTimeout(playBeat, 500);
     }
 
-    // Har qanday bosishda sakrash
-    window.addEventListener('keydown', (e) => { if(e.code === 'Space') jump(); });
-    window.addEventListener('touchstart', jump);
+    function switchGravity(e) {
+        if(!gameActive) return;
+        if(e) e.preventDefault();
+        gravityOnFloor = !gravityOnFloor;
+        runner.className = gravityOnFloor ? 'on-floor' : 'on-ceiling';
+        
+        // Switch sound
+        let osc = audioCtx.createOscillator();
+        let gain = audioCtx.createGain();
+        osc.frequency.value = gravityOnFloor ? 300 : 600;
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.1);
+    }
 
-    function createObstacle() {
-        if (!gameActive) return;
-        const ob = document.createElement('div');
-        ob.className = 'obstacle';
-        ob.innerText = ['🌵', '📦', '🪵', '🔥'][Math.floor(Math.random()*4)];
-        ob.style.right = '-50px';
-        container.appendChild(ob);
-        obstacles.push(ob);
-
-        let delay = Math.random() * 1000 + 1000;
-        setTimeout(createObstacle, delay);
+    function startGame(e) {
+        e.stopPropagation();
+        document.getElementById('start-screen').style.display = 'none';
+        gameActive = true;
+        if(audioCtx.state === 'suspended') audioCtx.resume();
+        playBeat();
+        spawnObstacle();
+        gameLoop();
     }
 
     function gameLoop() {
-        if (!gameActive) return;
-
-        distance += 1;
-        distEl.innerText = Math.floor(distance / 10);
-
-        obstacles.forEach((ob, index) => {
-            let right = parseInt(window.getComputedStyle(ob).getPropertyValue('right'));
-            ob.style.right = (right + 7) + 'px';
-
-            // Collision detection (To'qnashuv)
-            let pRect = player.getBoundingClientRect();
-            let oRect = ob.getBoundingClientRect();
-
-            if (
-                pRect.left < oRect.right &&
-                pRect.right > oRect.left &&
-                pRect.bottom > oRect.top &&
-                pRect.top < oRect.bottom
-            ) {
-                gameOver();
-            }
-
-            if (right > window.innerWidth) {
-                ob.remove();
-                obstacles.splice(index, 1);
-            }
-        });
-
+        if(!gameActive) return;
+        distance++;
+        document.getElementById('dist').innerText = Math.floor(distance/10);
         requestAnimationFrame(gameLoop);
+    }
+
+    function spawnObstacle() {
+        if(!gameActive) return;
+        const isCrystal = Math.random() > 0.6;
+        const obj = document.createElement('div');
+        
+        if(isCrystal) {
+            obj.className = 'crystal';
+            obj.innerHTML = '💎';
+            obj.style.top = Math.random() > 0.5 ? 'calc(100vh - 100px)' : '70px';
+        } else {
+            obj.className = 'laser';
+            const onTop = Math.random() > 0.5;
+            obj.style.top = onTop ? '0' : 'calc(100vh - 130px)';
+            obj.style.height = '130px';
+        }
+
+        obj.style.right = '-50px';
+        view.appendChild(obj);
+
+        let pos = -50;
+        const move = setInterval(() => {
+            if(!gameActive) { clearInterval(move); obj.remove(); return; }
+            pos += (7 + distance/1000);
+            obj.style.right = pos + 'px';
+
+            // Collision logic
+            let rRect = runner.getBoundingClientRect();
+            let oRect = obj.getBoundingClientRect();
+
+            if(rRect.left < oRect.right && rRect.right > oRect.left && rRect.top < oRect.bottom && rRect.bottom > oRect.top) {
+                if(isCrystal) {
+                    rc += 5;
+                    document.getElementById('rc').innerText = rc;
+                    obj.remove();
+                    clearInterval(move);
+                } else {
+                    gameOver();
+                }
+            }
+
+            if(pos > window.innerWidth) {
+                clearInterval(move);
+                obj.remove();
+            }
+        }, 20);
+
+        setTimeout(spawnObstacle, Math.max(500, 1500 - distance/20));
     }
 
     function gameOver() {
         gameActive = false;
-        msg.style.display = 'flex';
-        document.getElementById('final-dist').innerText = Math.floor(distance / 10);
+        alert("TERMINATED! Gravity system failed.\nDistance: " + Math.floor(distance/10) + "m\nRC: " + rc);
+        location.reload();
     }
-
-    createObstacle();
-    gameLoop();
 </script>
 </body>
 </html>
