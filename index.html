@@ -3,163 +3,150 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Cyber Dash: Vertical Tower</title>
+    <title>The Pulse: Music Runner</title>
     <style>
-        :root { --neon: #bc13fe; --danger: #ff0055; --bg: #0a0a0f; }
-        body { margin: 0; overflow: hidden; background: var(--bg); color: white; font-family: 'Segoe UI', sans-serif; touch-action: none; }
-        canvas { display: block; }
+        :root { --neon-pink: #ff00ff; --neon-cyan: #00ffff; --bg: #050505; }
+        body { margin: 0; overflow: hidden; background: var(--bg); color: white; font-family: 'Courier New', monospace; touch-action: none; }
+        canvas { display: block; filter: blur(0.5px) contrast(1.2); }
 
-        /* HUD */
-        #hud { position: fixed; top: 15px; width: 100%; display: flex; justify-content: space-around; z-index: 100; pointer-events: none; }
-        .stat { background: rgba(0,0,0,0.8); padding: 8px 15px; border: 1px solid var(--neon); border-radius: 5px; font-weight: bold; }
+        #hud { position: fixed; top: 20px; width: 100%; display: flex; justify-content: space-around; z-index: 100; pointer-events: none; }
+        .stat { background: rgba(0,0,0,0.8); padding: 10px 20px; border: 2px solid var(--neon-cyan); border-radius: 5px; box-shadow: 0 0 15px var(--neon-cyan); }
 
         .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.95); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 1000; text-align: center; }
-        button { padding: 15px 50px; font-size: 20px; background: var(--neon); border: none; color: white; font-weight: bold; border-radius: 5px; cursor: pointer; margin-top: 25px; box-shadow: 0 0 15px var(--neon); }
+        h1 { font-size: 50px; text-shadow: 0 0 20px var(--neon-pink); margin-bottom: 10px; }
+        button { padding: 15px 60px; font-size: 22px; background: transparent; border: 2px solid var(--neon-pink); color: var(--neon-pink); cursor: pointer; transition: 0.3s; box-shadow: 0 0 10px var(--neon-pink); }
+        button:hover { background: var(--neon-pink); color: white; }
     </style>
 </head>
-<body>
+<body onclick="handleAction()">
 
 <div id="hud">
-    <div class="stat">HEIGHT: <span id="height-val">0</span>m</div>
-    <div class="stat">RC: <span id="rc-val">0</span></div>
+    <div class="stat">PULSE: <span id="dist">0</span></div>
+    <div class="stat">RC: <span id="rc">0</span></div>
 </div>
 
 <div id="start-screen" class="overlay">
-    <h1 style="font-size: 40px; color: var(--neon);">CYBER DASH</h1>
-    <p>Tap to jump! Climb as high as you can.<br>Don't fall and avoid the red laser floor!</p>
-    <button onclick="startMission()">START CLIMB</button>
+    <h1>THE PULSE</h1>
+    <p>Tap to JUMP. Follow the rhythm!<br>Avoid dark blocks and collect light sparks.</p>
+    <button onclick="initPulse(event)">SYNC START</button>
 </div>
 
-<canvas id="gameCanvas"></canvas>
+<canvas id="pulseCanvas"></canvas>
 
 <script>
-    const canvas = document.getElementById('gameCanvas');
+    const canvas = document.getElementById('pulseCanvas');
     const ctx = canvas.getContext('2d');
+    let gameActive = false, score = 0, rc = 0;
     
-    let gameActive = false;
-    let score = 0, rc = 0, cameraY = 0;
-    
-    const player = { x: 0, y: 0, w: 30, h: 30, dy: 0, dx: 0, jump: -12, speed: 5 };
-    let platforms = [];
-    let crystals = [];
+    const player = { x: 80, y: 0, w: 40, h: 40, dy: 0, jumping: false, ground: 0 };
+    let obstacles = [], particles = [];
 
-    // --- BUILT-IN TECHNO MUSIC ---
+    // --- PROCEDURAL MUSIC ENGINE ---
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    function playSound(freq, type, vol, dur) {
-        if(!gameActive) return;
+    function playBeat(freq, type, dur, vol, timeOffset = 0) {
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
-        osc.type = type; osc.frequency.value = freq;
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime + timeOffset);
         osc.connect(gain); gain.connect(audioCtx.destination);
-        gain.gain.setValueAtTime(vol, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + dur);
-        osc.start(); osc.stop(audioCtx.currentTime + dur);
+        gain.gain.setValueAtTime(vol, audioCtx.currentTime + timeOffset);
+        gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + dur + timeOffset);
+        osc.start(audioCtx.currentTime + timeOffset);
+        osc.stop(audioCtx.currentTime + dur + timeOffset);
     }
 
-    function init() {
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
-        player.x = canvas.width / 2 - 15;
-        player.y = canvas.height - 100;
-        platforms = [];
-        // Base platform
-        platforms.push({ x: 0, y: canvas.height - 20, w: canvas.width, h: 20 });
-        for(let i=1; i<10; i++) spawnPlatform(canvas.height - i * 120);
-    }
-
-    function spawnPlatform(y) {
-        const w = 80 + Math.random() * 50;
-        const x = Math.random() * (canvas.width - w);
-        platforms.push({ x, y, w, h: 15 });
-        if(Math.random() > 0.7) crystals.push({ x: x + w/2 - 10, y: y - 30, w: 20, h: 20 });
-    }
-
-    window.onpointerdown = () => {
+    function musicLoop() {
         if(!gameActive) return;
-        if(player.dy === 0) { // Only jump if on platform
-            player.dy = player.jump;
-            playSound(400, 'sine', 0.1, 0.2);
-        }
-    };
+        // Bass Kick
+        playBeat(60, 'sine', 0.2, 0.4);
+        // Snare/Clap
+        playBeat(800, 'square', 0.05, 0.05, 0.5);
+        
+        // Spawn obstacle exactly on the beat
+        spawnObstacle();
+        
+        setTimeout(musicLoop, 1000); // 60 BPM
+    }
 
-    function startMission() {
+    function initPulse(e) {
+        e.stopPropagation();
         if (audioCtx.state === 'suspended') audioCtx.resume();
         document.getElementById('start-screen').style.display = 'none';
-        init();
-        gameActive = true;
         
-        // Background Beat
-        setInterval(() => {
-            if(gameActive) playSound(60, 'square', 0.05, 0.1);
-        }, 400);
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        player.ground = canvas.height - 150;
+        player.y = player.ground;
 
+        gameActive = true;
+        musicLoop();
         update();
+    }
+
+    function handleAction() {
+        if(!gameActive) return;
+        if(!player.jumping) {
+            player.dy = -18;
+            player.jumping = true;
+            playBeat(400, 'triangle', 0.2, 0.1);
+        }
+    }
+
+    function spawnObstacle() {
+        obstacles.push({ x: canvas.width, y: player.ground, w: 40, h: 60, passed: false });
     }
 
     function update() {
         if(!gameActive) return;
 
-        ctx.fillStyle = '#0a0a0f';
+        // Visual background pulse
+        ctx.fillStyle = `rgba(5, 5, 5, 0.3)`;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        // Physics
-        player.dy += 0.5; // Gravity
-        player.y += player.dy;
+        // Draw Floor line
+        ctx.strokeStyle = varColor('--neon-cyan');
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(0, player.ground + 40);
+        ctx.lineTo(canvas.width, player.ground + 40);
+        ctx.stroke();
 
-        // Camera follow
-        if(player.y < canvas.height / 2) {
-            let diff = canvas.height / 2 - player.y;
-            player.y = canvas.height / 2;
-            cameraY += diff;
-            score += Math.floor(diff/10);
-            
-            platforms.forEach(p => p.y += diff);
-            crystals.forEach(c => c.y += diff);
+        // Player Physics
+        player.dy += 0.8;
+        player.y += player.dy;
+        if(player.y > player.ground) {
+            player.y = player.ground;
+            player.dy = 0;
+            player.jumping = false;
         }
 
-        // Platforms drawing and collision
-        ctx.fillStyle = varColor('--neon');
-        platforms.forEach((p, i) => {
-            ctx.fillRect(p.x, p.y, p.w, p.h);
-            if(player.dy > 0 && 
-               player.x + player.w > p.x && player.x < p.x + p.w &&
-               player.y + player.h > p.y && player.y + player.h < p.y + p.h + player.dy) {
-                player.y = p.y - player.h;
-                player.dy = 0;
+        // Draw Player (Spark)
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = varColor('--neon-pink');
+        ctx.fillStyle = varColor('--neon-pink');
+        ctx.fillRect(player.x, player.y, player.w, player.h);
+        ctx.shadowBlur = 0;
+
+        // Obstacles
+        obstacles.forEach((obs, i) => {
+            obs.x -= 6;
+            ctx.fillStyle = '#333';
+            ctx.strokeStyle = varColor('--neon-cyan');
+            ctx.lineWidth = 2;
+            ctx.strokeRect(obs.x, obs.y, obs.w, obs.h);
+            ctx.fillRect(obs.x, obs.y, obs.w, obs.h);
+
+            // Collision
+            if(player.x < obs.x + obs.w && player.x + player.w > obs.x && 
+               player.y < obs.y + obs.h && player.y + player.h > obs.y) {
+                gameOver();
             }
-            if(p.y > canvas.height) {
-                platforms.splice(i, 1);
-                spawnPlatform(platforms[platforms.length-1].y - 120);
-            }
+
+            if(obs.x < -50) obstacles.splice(i, 1);
         });
 
-        // Crystals
-        crystals.forEach((c, i) => {
-            ctx.fillText('💎', c.x, c.y + 20);
-            if(Math.hypot(player.x - c.x, player.y - c.y) < 30) {
-                rc += 10;
-                playSound(800, 'sine', 0.1, 0.1);
-                crystals.splice(i, 1);
-            }
-            if(c.y > canvas.height) crystals.splice(i, 1);
-        });
-
-        // Player move (auto move towards tap or center)
-        player.x += player.dx;
-        
-        // Draw Player
-        ctx.font = '30px Arial';
-        ctx.fillText('🤖', player.x, player.y + 25);
-
-        // Laser Floor (Dead Zone)
-        ctx.fillStyle = 'rgba(255, 0, 85, 0.3)';
-        ctx.fillRect(0, canvas.height - 20, canvas.width, 20);
-
-        document.getElementById('height-val').innerText = score;
-        document.getElementById('rc-val').innerText = rc;
-
-        if(player.y > canvas.height) gameOver();
-
+        score++;
+        document.getElementById('dist').innerText = Math.floor(score/10);
         requestAnimationFrame(update);
     }
 
@@ -167,16 +154,10 @@
 
     function gameOver() {
         gameActive = false;
-        playSound(100, 'sawtooth', 0.2, 0.5);
-        alert(`FALLEN!\nHeight: ${score}m\nRC: ${rc}`);
+        playBeat(50, 'sawtooth', 0.5, 0.2);
+        alert(`PULSE LOST!\nSync Level: ${Math.floor(score/10)}\nRC Earned: ${Math.floor(score/50)}`);
         location.reload();
     }
-
-    // Accelerometer or Touch Side
-    window.onpointermove = (e) => {
-        let center = canvas.width / 2;
-        player.dx = (e.clientX - center) / 10;
-    };
 </script>
 </body>
 </html>
