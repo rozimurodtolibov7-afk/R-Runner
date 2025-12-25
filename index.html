@@ -3,157 +3,213 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>The Pulse: Music Runner</title>
+    <title>R-Runner: Zen Soundscape</title>
     <style>
-        :root { --neon-pink: #ff00ff; --neon-cyan: #00ffff; --bg: #050505; }
-        body { margin: 0; overflow: hidden; background: var(--bg); color: white; font-family: 'Courier New', monospace; touch-action: none; }
+        body { margin: 0; background: #020205; overflow: hidden; font-family: 'Segoe UI', sans-serif; color: #fff; touch-action: none; }
+        #ui { position: absolute; top: 25px; width: 100%; display: flex; justify-content: space-around; z-index: 10; pointer-events: none; }
+        .stat { text-align: center; text-transform: uppercase; letter-spacing: 2px; font-size: 10px; opacity: 0.8; }
+        .val { font-size: 22px; font-weight: bold; color: #f1c40f; display: block; margin-top: 5px; }
+        #start-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #000; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 200; cursor: pointer; }
+        #game-over { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 100; text-align: center; }
         canvas { display: block; }
-
-        #hud { position: fixed; top: 20px; width: 100%; display: flex; justify-content: space-around; z-index: 100; pointer-events: none; }
-        .stat { background: rgba(0,0,0,0.8); padding: 10px 20px; border: 2px solid var(--neon-cyan); border-radius: 5px; box-shadow: 0 0 15px var(--neon-cyan); }
-
-        .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.95); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 1000; text-align: center; }
-        h1 { font-size: 50px; text-shadow: 0 0 20px var(--neon-pink); margin-bottom: 10px; }
-        button { padding: 15px 60px; font-size: 22px; background: transparent; border: 2px solid var(--neon-pink); color: var(--neon-pink); cursor: pointer; transition: 0.3s; box-shadow: 0 0 10px var(--neon-pink); }
     </style>
 </head>
-<body onclick="handleAction()" ontouchstart="handleAction()">
+<body>
 
-<div id="hud">
-    <div class="stat">PULSE: <span id="dist">0</span></div>
-    <div class="stat">RC: <span id="rc">0</span></div>
+<div id="start-screen">
+    <h1 style="letter-spacing: 10px; color: #f1c40f;">R-RUNNER</h1>
+    <p style="opacity: 0.6;">TAP TO START & HEAR THE ZEN</p>
 </div>
 
-<div id="start-screen" class="overlay">
-    <h1>THE PULSE</h1>
-    <p>Tap to JUMP. Avoid obstacles.<br>Speed: Relaxed | Rhythm: Synced</p>
-    <button onclick="initPulse(event)">START MISSION</button>
+<div id="ui">
+    <div class="stat">Wisdom<span id="score" class="val">0</span></div>
+    <div class="stat">Resilience<span id="health" class="val">100%</span></div>
 </div>
 
-<canvas id="pulseCanvas"></canvas>
+<div id="game-over">
+    <h1 style="color:#ff3e3e; letter-spacing: 5px;">STABILITY LOST</h1>
+    <button onclick="location.reload()" style="background:none; border:1px solid #f1c40f; color:#f1c40f; padding:10px 30px; cursor:pointer;">RETRY</button>
+</div>
+
+<canvas id="canvas"></canvas>
 
 <script>
-    const canvas = document.getElementById('pulseCanvas');
-    const ctx = canvas.getContext('2d');
-    let gameActive = false, score = 0, rc = 0;
-    
-    // player.dy va gravitatsiya sekinlashtirildi
-    const player = { x: 80, y: 0, w: 40, h: 40, dy: 0, jumping: false, ground: 0 };
-    let obstacles = [];
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
 
-    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    function playBeat(freq, type, dur, vol, timeOffset = 0) {
+let score = 0, health = 100, gameActive = false;
+let obstacles = [], wisdoms = [];
+let lastObstacleTime = 0;
+let frameCount = 0;
+
+// --- REVOLUTIONARY AUDIO SYSTEM ---
+let audioCtx;
+let masterGain;
+
+function initAudio() {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    masterGain = audioCtx.createGain();
+    masterGain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+    masterGain.connect(audioCtx.destination);
+
+    // Constant Zen Background Drone
+    const frequencies = [65.41, 98.00, 130.81]; // C2, G2, C3
+    frequencies.forEach(f => {
         const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.type = type;
-        osc.frequency.setValueAtTime(freq, audioCtx.currentTime + timeOffset);
-        osc.connect(gain); gain.connect(audioCtx.destination);
-        gain.gain.setValueAtTime(vol, audioCtx.currentTime + timeOffset);
-        gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + dur + timeOffset);
-        osc.start(audioCtx.currentTime + timeOffset);
-        osc.stop(audioCtx.currentTime + dur + timeOffset);
-    }
+        const g = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = f;
+        g.gain.setValueAtTime(0.02, audioCtx.currentTime);
+        osc.connect(g).connect(masterGain);
+        osc.start();
+    });
+}
 
-    function musicLoop() {
-        if(!gameActive) return;
-        playBeat(60, 'sine', 0.2, 0.4); // Kick
-        playBeat(800, 'square', 0.05, 0.03, 0.5); // Snare
-        
-        if (Math.random() > 0.3) spawnObstacle(); // Randomly spawn on beat
-        
-        setTimeout(musicLoop, 1200); // Sekinroq temp (BPM pasaytirildi)
-    }
+function playZenNote(f, v=0.1) {
+    if (!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(f, audioCtx.currentTime);
+    gain.gain.setValueAtTime(v, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 1.5);
+    osc.connect(gain).connect(masterGain);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 1.5);
+}
 
-    function initPulse(e) {
-        if(e) e.stopPropagation();
-        if (audioCtx.state === 'suspended') audioCtx.resume();
-        document.getElementById('start-screen').style.display = 'none';
-        
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
-        player.ground = canvas.height - 150;
-        player.y = player.ground;
-
-        gameActive = true;
-        musicLoop();
-        update();
-    }
-
-    function handleAction(e) {
-        if(e) e.preventDefault();
-        if(!gameActive) return;
-        if(!player.jumping) {
-            player.dy = -15; // Sakrash kuchi sekinlashtirildi
-            player.jumping = true;
-            playBeat(400, 'triangle', 0.2, 0.1);
+const player = {
+    x: 70, y: canvas.height - 135, w: 35, h: 35,
+    dy: 0, gravity: 0.6, jumpPower: -12,
+    ground: canvas.height - 100,
+    jumps: 0,
+    update() {
+        this.dy += this.gravity;
+        this.y += this.dy;
+        if (this.y + this.h > this.ground) {
+            this.y = this.ground - this.h;
+            this.dy = 0;
+            this.jumps = 0;
+        }
+    },
+    jump() {
+        if (this.jumps < 2) {
+            this.dy = this.jumpPower;
+            this.jumps++;
+            playZenNote(300 + (this.jumps * 150));
         }
     }
+};
 
-    function spawnObstacle() {
-        obstacles.push({ x: canvas.width, y: player.ground, w: 45, h: 65 });
+class Obstacle {
+    constructor() {
+        this.w = 35; this.h = 35;
+        this.x = canvas.width;
+        this.y = player.ground - this.h;
     }
-
-    function update() {
-        if(!gameActive) return;
-
-        ctx.fillStyle = `rgba(5, 5, 5, 0.4)`;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        // Floor
-        ctx.strokeStyle = '#00ffff';
-        ctx.lineWidth = 4;
-        ctx.beginPath();
-        ctx.moveTo(0, player.ground + 40);
-        ctx.lineTo(canvas.width, player.ground + 40);
-        ctx.stroke();
-
-        // Player Gravity (Sekinroq tushish)
-        player.dy += 0.6; 
-        player.y += player.dy;
-        if(player.y > player.ground) {
-            player.y = player.ground;
-            player.dy = 0;
-            player.jumping = false;
+    update() {
+        this.x -= 5;
+        if (player.x < this.x + this.w && player.x + player.w > this.x && player.y + player.h > this.y) {
+            health -= 25;
+            playZenNote(80, 0.3); // Low thud
+            return false;
         }
+        return this.x > -50;
+    }
+    draw() {
+        ctx.fillStyle = '#ff3e3e';
+        ctx.shadowBlur = 10; ctx.shadowColor = '#ff3e3e';
+        ctx.fillRect(this.x, this.y, this.w, this.h);
+    }
+}
 
-        // Draw Player
-        ctx.fillStyle = '#ff00ff';
-        ctx.shadowBlur = 10;
-        ctx.shadowColor = '#ff00ff';
-        ctx.fillRect(player.x, player.y, player.w, player.h);
-        ctx.shadowBlur = 0;
+class Wisdom {
+    constructor(xOffset) {
+        this.x = canvas.width + xOffset;
+        this.y = player.ground - 120 + Math.sin(this.x / 120) * 50;
+        this.r = 10;
+    }
+    update() {
+        this.x -= 5;
+        const dx = (player.x + player.w/2) - this.x;
+        const dy = (player.y + player.h/2) - this.y;
+        if (Math.sqrt(dx*dx + dy*dy) < 30) {
+            score += 100;
+            playZenNote(800 + (score/10), 0.05); // Rising sparkle
+            return false;
+        }
+        return this.x > -50;
+    }
+    draw() {
+        ctx.fillStyle = '#f1c40f';
+        ctx.shadowBlur = 15; ctx.shadowColor = '#f1c40f';
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.r, 0, 7); ctx.fill();
+    }
+}
 
-        // Obstacles (Sekinroq harakat)
-        obstacles.forEach((obs, i) => {
-            obs.x -= 4.5; // Tezlik 6 dan 4.5 ga tushirildi
-            ctx.fillStyle = '#111';
-            ctx.strokeStyle = '#00ffff';
-            ctx.strokeRect(obs.x, obs.y, obs.w, obs.h);
-            ctx.fillRect(obs.x, obs.y, obs.w, obs.h);
+function loop() {
+    if (!gameActive) return;
+    frameCount++;
+    ctx.fillStyle = '#020205';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            // Collision
-            if(player.x < obs.x + obs.w && player.x + player.w > obs.x && 
-               player.y < obs.y + obs.h && player.y + player.h > obs.y) {
-                gameOver();
-            }
+    // Ground line
+    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+    ctx.beginPath(); ctx.moveTo(0, player.ground); ctx.lineTo(canvas.width, player.ground); ctx.stroke();
 
-            if(obs.x < -100) obstacles.splice(i, 1);
-        });
+    player.update();
+    ctx.fillStyle = '#fff';
+    ctx.shadowBlur = 20; ctx.shadowColor = '#8e44ad';
+    ctx.fillRect(player.x, player.y, player.w, player.h);
 
-        score++;
-        document.getElementById('dist').innerText = Math.floor(score/10);
-        document.getElementById('rc').innerText = Math.floor(score/50);
-        requestAnimationFrame(update);
+    if (frameCount - lastObstacleTime > 150) {
+        obstacles.push(new Obstacle());
+        lastObstacleTime = frameCount;
     }
 
-    function gameOver() {
+    if (frameCount % 70 === 0) {
+        wisdoms.push(new Wisdom(0));
+    }
+
+    obstacles = obstacles.filter(o => {
+        const active = o.update();
+        if (active) o.draw();
+        return active;
+    });
+
+    wisdoms = wisdoms.filter(w => {
+        const active = w.update();
+        if (active) w.draw();
+        return active;
+    });
+
+    document.getElementById('score').innerText = score;
+    document.getElementById('health').innerText = health + '%';
+
+    if (health <= 0) {
         gameActive = false;
-        playBeat(50, 'sawtooth', 0.5, 0.2);
-        setTimeout(() => {
-            alert("GAME OVER\nPulse Level: " + Math.floor(score/10));
-            location.reload();
-        }, 100);
+        document.getElementById('game-over').style.display = 'flex';
     }
+
+    requestAnimationFrame(loop);
+}
+
+document.getElementById('start-screen').addEventListener('click', () => {
+    document.getElementById('start-screen').style.display = 'none';
+    initAudio();
+    gameActive = true;
+    loop();
+});
+
+window.addEventListener('touchstart', (e) => {
+    if(gameActive) player.jump();
+});
+window.addEventListener('mousedown', (e) => {
+    if(gameActive) player.jump();
+});
+
 </script>
 </body>
 </html>
